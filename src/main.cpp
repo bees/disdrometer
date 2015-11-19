@@ -19,15 +19,17 @@ const int readPin3 = A2; // ADC0 or ADC1
 //SETUP COUNTERS
 unsigned int ADC0COUNT = 0;
 int SEEN0 = 0;
+unsigned int ADC1COUNT = 0;
+int SEEN1 = 0;
 
 //INIT ADC OBJECT
 ADC *adc = new ADC(); 
 
 //DECLARE STORAGE STRUCTURES
 deque<int16_t> *adc0window = new deque<int16_t>(); 
-//deque<int16_t> *adc1window = new deque<int16_t>(); 
+deque<int16_t> *adc1window = new deque<int16_t>(); 
 deque<double> *adc0cand = new deque<double>(); 
-//deque<int16_t> *adc1cand = new deque<int16_t>(); 
+deque<int16_t> *adc1cand = new deque<int16_t>(); 
 
 //INIT RINGBUFFERS: TODO: get this working if we need extra performance
 //const int buffer_size = 8;
@@ -61,17 +63,8 @@ void adcSetup() {
 
 int main () {
 
-//  char msg[32] = {0};
-//  char c = 0;
-
-//  for (int i = 0; i < WINDOW_SIZE; i++) {
-//      adc0Cand->push(0);
-//      adc1Cand->push(0);
-//  }
-
     pinSetup();
     adcSetup();
-
 
     Serial.begin(9600);
     delay(500);
@@ -83,6 +76,10 @@ int main () {
             adc0cand->pop_front();
         }
 
+//      while (!adc1cand->empty()) {
+//          Serial.print((int) adc1cand->front());
+//          adc1cand->pop_front();
+//      }
 
         if(adc->adc0->fail_flag) {
             Serial.print("ADC0 error flags: 0x");
@@ -128,5 +125,27 @@ void adc0_isr(void) {
 }
 
 void adc1_isr(void) {
-    ADC1_RA; // clear interrupt
+//  ADC1COUNT++;
+//  
+//  //make sure sample window is good
+//  if (adc1window->size() > WINDOW_SIZE) adc1window->pop_front();
+//  if (SEEN1 > 0) SEEN1--;
+
+//  adc1window->push_back(adc->analogReadContinuous());
+
+//  deque<int16_t> x;
+//  const auto n    = adc1window->size();
+//  for (auto i = 0; i < n; i ++)
+//      x.push_back(i);
+//  const auto s_x  = accumulate(x.begin(), x.end(), 0.0);
+//  const auto s_y  = accumulate(adc1window->begin(), adc1window->end(), 0.0);
+//  const auto s_xx = inner_product(x.begin(), x.end(), x.begin(), 0.0);
+//  const auto s_xy = inner_product(x.begin(), x.end(), adc1window->begin(), 0.0);
+//  const auto a    = (n * s_xy - s_x * s_y) / (n * s_xx - s_x * s_x);
+//  if ((a < THRESHOLD) && (SEEN1 == 0)) {
+//      adc1cand->push_back(a);
+//      SEEN1 = 15;
+//  }
+
+//  ADC1_RA; // clear interrupt
 }
