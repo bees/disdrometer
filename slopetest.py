@@ -22,6 +22,19 @@ def get_data():
                 temp = 0
 
 
+#def calibrate():
+#    temp = []
+#    while True:
+#        for c in ser.read():
+#            if chr(c) == 'd':
+#                return
+#            elif chr(c) != '\r' and chr(c) != '\n':
+#                temp.append(c)
+#            else temp.:
+#                print(''.join(temp))
+#                temp = []
+
+
 if __name__ == '__main__':
     ser = serial.Serial(
             port='/dev/ttyACM0',\
@@ -32,6 +45,10 @@ if __name__ == '__main__':
             timeout=0)
 
     print("connected to: " + ser.portstr)
+    #ser.write(serial.to_bytes('s'))
+
+
+    #calibrate()
 
     get_data()
     ser.close()
