@@ -4,11 +4,12 @@
 class Droplet
 {
     public:
-        Droplet(int a, double v, double d);
+        Droplet(int a, double v, double d, int t);
 
         int amplitude;
         double velocity;
         double diameter;
+        int timestamp;
 
 };
 

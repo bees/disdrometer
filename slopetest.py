@@ -1,6 +1,10 @@
 import serial
 import matplotlib.pyplot as plt
 import csv
+from collections import namedtuple
+
+Droplet = namedtuple('Droplet', ['amplitude', 't', 'ts'])
+
 
 
 
@@ -21,18 +25,28 @@ def get_data():
                 print(temp)
                 temp = 0
 
+def serial_start():
+    while True:
+        for c in ser.read():
+            if chr(c) == 's':
+                return
 
-#def calibrate():
-#    temp = []
-#    while True:
-#        for c in ser.read():
-#            if chr(c) == 'd':
-#                return
-#            elif chr(c) != '\r' and chr(c) != '\n':
-#                temp.append(c)
-#            else temp.:
-#                print(''.join(temp))
-#                temp = []
+
+def calibrate():
+    print("Doing calibration routine")
+    ser.write(serial.to_bytes([99]))
+    serial_start()
+    temp = 0
+    while True:
+        for c in ser.read():
+            if chr(c) == 'd':
+                return
+            elif chr(c) != '\r' and chr(c) != '\n' and chr(c) !='-':
+                temp = temp*10 + int(chr(c))
+            elif temp != 0:
+                print(temp)
+                temp = 0
+
 
 
 if __name__ == '__main__':
@@ -44,11 +58,13 @@ if __name__ == '__main__':
             bytesize=serial.EIGHTBITS,\
             timeout=0)
 
+    ser.flushInput()
+    ser.flushOutput()
+
     print("connected to: " + ser.portstr)
-    #ser.write(serial.to_bytes('s'))
 
 
-    #calibrate()
+    calibrate()
 
     get_data()
     ser.close()

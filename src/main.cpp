@@ -1,14 +1,16 @@
 #include "WProgram.h"
 #include "ADC.h"
 #include "RingBufferDMA.h"
-#include "cand.h"
+#include "droplet.h"
 #include <vector>
 #include <deque>
 #include <algorithm>
 #include <numeric>
+#include <math.h>
 
-#define WINDOW_SIZE 5
+#define WINDOW_SIZE 3
 #define THRESHOLD -50.0
+#define MAX_WIDTH 900
 
 using namespace std;
 
@@ -16,19 +18,20 @@ using namespace std;
 const int readPin = A9; // ADC0
 const int readPin2 = A3; // ADC1
 const int readPin3 = A2; // ADC0 or ADC1
+const int LED = 13; // ADC0 or ADC1
 
-//SETUP COUNTERS
-unsigned int ADC0COUNT = 0;
+//SETUP COUNTERS/FLAGS
+int ADC0COUNT = 0;
 int SEEN0 = 0;
-int SEEN_R0 = 0;
-unsigned int ADC1COUNT = 0;
+int ADC1COUNT = 0;
 int SEEN1 = 0;
-int SEEN_R1 = 0;
+
 
 //INIT ADC OBJECT
 ADC *adc = new ADC(); 
 
 //sensor values from calibration
+int CALIB = 0;
 int MAX0 = 0;
 int MAX1 = 0;
 int MIN0 = 0;
@@ -37,10 +40,9 @@ int MIN1 = 0;
 //DECLARE STORAGE STRUCTURES
 deque<int16_t> *adc0window = new deque<int16_t>(); 
 deque<int16_t> *adc1window = new deque<int16_t>(); 
-deque<Candidate> *adc0cand = new deque<Candidate>(); 
-deque<Candidate> *adc1cand = new deque<Candidate>(); 
-deque<Candidate> *adc0cand_r = new deque<Candidate>(); 
-deque<Candidate> *adc1cand_r = new deque<Candidate>(); 
+deque<Droplet> *adc0droplets = new deque<Droplet>(); 
+deque<Droplet> *adc1droplets = new deque<Droplet>(); 
+deque<Droplet> *verif_cand = new deque<Droplet>(); 
 
 //INIT RINGBUFFERS: TODO: get this working if we need extra performance
 //const int buffer_size = 8;
@@ -53,59 +55,74 @@ void pinSetup() {
     pinMode(readPin, INPUT);
     pinMode(readPin2, INPUT);
     pinMode(readPin3, INPUT);
+    pinMode(LED, OUTPUT);       // LED
+    digitalWrite(LED, LOW);   // LED on
 }
 
 void adcSetup() {
     adc->setAveraging(32); // set number of averages
     adc->setResolution(12); // set bits of resolution
-    adc->setConversionSpeed(ADC_LOW_SPEED); // change the conversion speed
-    adc->setSamplingSpeed(ADC_VERY_LOW_SPEED); // change the sampling speed
+    adc->setConversionSpeed(ADC_MED_SPEED); // change the conversion speed
+    adc->setSamplingSpeed(ADC_MED_SPEED); // change the sampling speed
 
     adc->setAveraging(32, ADC_1); // set number of averages
     adc->setResolution(12, ADC_1); // set bits of resolution
-    adc->setConversionSpeed(ADC_LOW_SPEED, ADC_1); // change the conversion speed
-    adc->setSamplingSpeed(ADC_VERY_LOW_SPEED, ADC_1); // change the sampling speed
+    adc->setConversionSpeed(ADC_MED_SPEED, ADC_1); // change the conversion speed
+    adc->setSamplingSpeed(ADC_MED_SPEED, ADC_1); // change the sampling speed
 }
 
 void calibrationDialog() {
-    unsigned char input = '\0';
-    while(1) {
-        if(Serial.available())
-            input = Serial.read();
-        if (input == 's')
-            break;
-    }
-
-    Serial.println("Make sure photodiodes are unblocked, enter \'c\' to continue");
+    CALIB = 1;
+    digitalWrite(LED, HIGH);   // LED on
+    delay(2000);
+    digitalWrite(LED, LOW);   // LED on
             
-    while(1) {
-        if(Serial.available())
-            input = Serial.read();
-        if (input == 'c')
-            break;
-    }
     
-    MAX0 = adc->analogRead(ADC_0);
-    //MAX1 = adc->analogRead(ADC_1);
-    Serial.print("ADC0 max: ");
-    Serial.println(MAX0);
-    
-
-    Serial.println("Make sure photodiodes are completely blocked, enter \'c\' to continue");
+    MAX0 = adc->analogReadContinuous(ADC_0);
+    MAX1 = adc->analogReadContinuous(ADC_1);
+    delay(1000);
+    Serial.print("c");
+    Serial.print(MAX0);
+    Serial.print(" ");
+    Serial.println(MAX1);
+    digitalWrite(LED, HIGH);   // LED on
+    delay(2000);
+    digitalWrite(LED, LOW);   // LED on
             
-    while(1) {
-        if(Serial.available())
-            input = Serial.read();
-        if (input == 'c')
-            break;
-    }
+    MIN0 = adc->analogReadContinuous(ADC_0);
+    MIN1 = adc->analogReadContinuous(ADC_1);
+    delay(1000);
 
-    MIN0 = adc->analogRead(ADC_0);
-
-    Serial.print("ADC0 min: ");
-    Serial.println(MIN0);
+    Serial.print("c");
+    Serial.print(MIN0);
+    Serial.print(" ");
+    Serial.println(MIN1);
+    delay(2000);
+    adc1window->clear();
+    CALIB = 0;
 
 }
+
+void cross_validation()
+{
+
+    Droplet new_drop = adc1droplets->front();
+
+    for (auto cand = adc0droplets->begin(); cand != adc0droplets->end(); ++cand) {
+        if (abs(new_drop.timestamp - cand->timestamp) < MAX_WIDTH) {
+            verif_cand->push_front(*cand);
+            adc1droplets->pop_front();
+            adc0droplets->erase(cand);
+            Serial.println("c found a match");
+        } else
+            adc1droplets->pop_front();
+
+        return; 
+    }
+}
+
+
+
 
 int main () {
 
@@ -114,42 +131,62 @@ int main () {
     Serial.begin(9600);
     delay(500);
 
-    //calibrationDialog();
 
     //Serial.println("Calibration complete, now running...");
     adc->startContinuous(readPin, ADC_0);
     adc->startContinuous(readPin2, ADC_1);
-    adc->enableInterrupts(ADC_0);
-    adc->enableInterrupts(ADC_1);
+
 
     while (1) {
 
-        while (!adc0cand->empty()) {
-
-            Serial.println("1");
-            Serial.println((int) adc0cand->front().slope);
-            Serial.println("1");
-            adc0cand->pop_front();
+        //catch calibration signal
+        if (Serial.available()) {
+            if (Serial.read() == 'c') {
+                adc->disableInterrupts(ADC_0);
+                adc->disableInterrupts(ADC_1);
+                calibrationDialog();
+                adc1window->clear();
+                adc1droplets->clear();
+                adc->enableInterrupts(ADC_0);
+                adc->enableInterrupts(ADC_1);
+            }
         }
 
-        while (!adc0cand_r->empty()) {
-            Serial.println("2");
-            Serial.println((int) adc0cand_r->front().slope * 100);
-            Serial.println("2");
-            adc0cand_r->pop_front();
+
+        if (!adc0droplets->empty()) {
+            if (abs(adc0droplets->front().timestamp - ADC0COUNT) > MAX_WIDTH) {
+                Serial.println("clearing adc0");
+                Serial.print("c ");
+                Serial.print(adc0droplets->front().timestamp);
+                Serial.print(" ");
+                Serial.println(ADC0COUNT);
+                adc0droplets->pop_front();
+            }
         }
 
-        while (!adc1cand->empty()) {
-            Serial.println("3");
-            Serial.println((int) adc1cand->front().slope * 10);
-            Serial.println("3");
-            adc1cand->pop_front();
+        if (!adc1droplets->empty()) {
+//          Serial.print((int) adc1droplets->front().velocity);
+//          Serial.print(" ");
+//          Serial.print((int) adc1droplets->front().diameter);
+//          Serial.print(" ");
+//          Serial.println((int) adc1droplets->front().amplitude);
+//          adc1droplets->pop_front();
+            Serial.println("c1");
+            cross_validation();
+            if (!adc1droplets->empty()) {
+                if (abs(adc1droplets->front().timestamp - ADC1COUNT) > MAX_WIDTH)
+                    Serial.println("clearing");
+                    adc1droplets->pop_front();
+            }
         }
-        while (!adc1cand_r->empty()) {
-            Serial.println("4");
-            Serial.println((int) adc1cand_r->front().slope * 1000);
-            Serial.println("4");
-            adc1cand_r->pop_front();
+
+        if (!verif_cand->empty()) {
+            Serial.print((int) verif_cand->front().velocity);
+            Serial.print(" ");
+            Serial.print((int) verif_cand->front().diameter);
+            Serial.print(" ");
+            Serial.println((int) verif_cand->front().timestamp);
+            verif_cand->pop_front();
         }
 
         if(adc->adc0->fail_flag) {
@@ -174,31 +211,44 @@ void adc1_sample(void) {
 void adc0_isr(void) {
     ADC0COUNT++;
     
-    //make sure sample window is good
-    if (adc0window->size() > WINDOW_SIZE) adc0window->pop_front();
-    if (SEEN0 > 0) SEEN0--;
-    if (SEEN_R0 > 0) SEEN_R0--;
-
-    adc0window->push_back(adc->analogReadContinuous(ADC_0));
-
-    deque<int16_t> x;
-    const auto n    = adc0window->size();
-    for (unsigned int i = 0; i < n; i ++)
-        x.push_back(i);
-    const auto s_x  = accumulate(x.begin(), x.end(), 0.0);
-    const auto s_y  = accumulate(adc0window->begin(), adc0window->end(), 0.0);
-    const auto s_xx = inner_product(x.begin(), x.end(), x.begin(), 0.0);
-    const auto s_xy = inner_product(x.begin(), x.end(), adc0window->begin(), 0.0);
-    const auto a    = (n * s_xy - s_x * s_y) / (n * s_xx - s_x * s_x);
-    if ((a < THRESHOLD) && (SEEN0 == 0)) {
-        adc0cand->push_back(Candidate(a, ADC0COUNT - WINDOW_SIZE, adc0window->back()));
-        SEEN0 = 20;
-    } else if ((-1*abs(a) < THRESHOLD) && (SEEN_R0 == 0)) {
-        adc0cand_r->push_back(Candidate(a, ADC0COUNT, adc0window->back()));
-        SEEN_R0 = 25;
+    if (CALIB == 1) {
+        ADC0_RA; 
+        return;
     }
 
-//  //TODO: add check for falling edges
+    
+    int16_t val = adc->analogReadContinuous(ADC_0);
+    
+    if (abs(val - MAX0) > 100) {
+        adc0window->push_back(val);
+        SEEN0++;
+        //avoid blowing up heap
+        if (SEEN0 > 300) {
+            SEEN0 = 0;
+            adc0window->clear();
+        }
+    } else if (SEEN0 > 10) {
+        int size = adc0window->size();
+        int minval = MAX0 + 100;
+        for (auto it = adc0window->begin(); it != adc0window->end(); it++) {
+            minval = (minval > *it) ? *it : minval;
+        }
+        double v = ((double) 7100*10)/(double)size;
+        int amplitude = abs(minval - MAX0);
+        double c = .88437;
+        double k = 2.76949;
+        double d = v/c;
+        d = pow(d, 1/k);
+        if (amplitude > 500)
+            adc0droplets->push_back(Droplet(amplitude, v, d, ADC0COUNT));
+
+        adc0window->clear();
+        SEEN0 = 0;
+    } else {
+        //avoid sending things that can't possibly be raindrops
+        SEEN0 = 0;
+    }
+
     ADC0_RA; // clear interrupt
 }
 
@@ -206,28 +256,42 @@ void adc0_isr(void) {
 void adc1_isr(void) {
     ADC1COUNT++;
     
-    //make sure sample window is good
-    if (adc1window->size() > WINDOW_SIZE) adc1window->pop_front();
-    if (SEEN1 > 0) SEEN1--;
-    if (SEEN_R1 > 0) SEEN_R1--;
+    if (CALIB == 1) {
+        ADC1_RA; 
+        return;
+    }
 
-    adc1window->push_back(adc->analogReadContinuous(ADC_1));
+    
+    int16_t val = adc->analogReadContinuous(ADC_1);
+    
+    if (abs(val - MAX1) > 100) {
+        adc1window->push_back(val);
+        SEEN1++;
+        //avoid blowing up heap
+        if (SEEN1 > 300) {
+            SEEN1 = 0;
+            adc1window->clear();
+        }
+    } else if (SEEN1 > 10) {
+        int size = adc1window->size();
+        int minval = MAX1 + 100;
+        for (auto it = adc1window->begin(); it != adc1window->end(); it++) {
+            minval = (minval > *it) ? *it : minval;
+        }
+        double v = ((double) 7100*10)/(double)size;
+        int amplitude = abs(minval - MAX1);
+        double c = .88437;
+        double k = 2.76949;
+        double d = v/c;
+        d = pow(d, 1/k);
+        if (amplitude > 500)
+            adc1droplets->push_back(Droplet(amplitude, v, d, ADC1COUNT));
 
-    deque<int16_t> x;
-    const auto n    = adc1window->size();
-    for (unsigned int i = 0; i < n; i ++)
-        x.push_back(i);
-    const auto s_x  = accumulate(x.begin(), x.end(), 0.0);
-    const auto s_y  = accumulate(adc1window->begin(), adc1window->end(), 0.0);
-    const auto s_xx = inner_product(x.begin(), x.end(), x.begin(), 0.0);
-    const auto s_xy = inner_product(x.begin(), x.end(), adc1window->begin(), 0.0);
-    const auto a    = (n * s_xy - s_x * s_y) / (n * s_xx - s_x * s_x);
-    if ((-1*abs(a) < THRESHOLD) && (SEEN1 == 0)) {
-        adc1cand->push_back(Candidate(a, ADC1COUNT - WINDOW_SIZE, adc1window->back()));
-        SEEN1 = 20;
-    } else if ((-1*abs(a) < THRESHOLD) && (SEEN_R1 == 0)) {
-        adc1cand_r->push_back(Candidate(a, ADC1COUNT, adc1window->back()));
-        SEEN_R1 = 25;
+        adc1window->clear();
+        SEEN1 = 0;
+    } else {
+        //avoid sending things that can't possibly be raindrops
+        SEEN1 = 0;
     }
 
     ADC1_RA; // clear interrupt
